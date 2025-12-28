@@ -1,0 +1,22 @@
+INFORMAL SETTLEMENT DETECTION - EVALUATION RESULTS
+============================================================
+
+Test Set: 98 positive, 106 negative tiles
+Threshold: 0.1
+
+POSITIVE TILES (Informal Settlements)
+------------------------------------------------------------
+Model                     IoU     Prec   Recall       F1
+------------------------------------------------------------
+Original GRAM          0.6489   0.6492   0.9844   0.7479
+Fine-tuned             0.2087   0.8646   0.2240   0.2999
+Extended               0.7124   0.7546   0.8976   0.7949
+
+
+NEGATIVE TILES (Formal Housing) - False Positive Rate
+------------------------------------------------------------
+Model                   Avg FPR    Max FPR
+------------------------------------------------------------
+Original GRAM            32.31%    100.00%
+Fine-tuned                4.02%     47.45%
+Extended                 13.02%     74.82%

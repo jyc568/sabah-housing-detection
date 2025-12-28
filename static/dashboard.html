@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Sabah Informal Housing Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+            background: #1a1a2e;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        #sidebar {
+            width: 320px;
+            background: linear-gradient(180deg, #16213e 0%, #0f3460 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        h1 {
+            font-size: 20px;
+            color: #e94560;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 20px;
+        }
+
+        h3 {
+            font-size: 13px;
+            color: #53a8b6;
+            margin: 15px 0 10px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+        #status {
+            margin-top: 15px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 6px;
+            font-size: 12px;
+            color: #aaa;
+            line-height: 1.6;
+        }
+
+        .legend {
+            margin-top: 10px;
+            font-size: 11px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .box {
+            width: 14px;
+            height: 14px;
+            margin-right: 8px;
+            border-radius: 2px;
+        }
+
+        #map {
+            flex: 1;
+            height: 100%;
+        }
+
+        .info-box {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div id="sidebar">
+            <h1>🏠 Sabah Housing</h1>
+            <p class="subtitle">Informal Settlement Detection System</p>
+
+            <div class="info-box">
+                <b>How to use:</b><br>
+                1. Use the <b>Marker</b> tool on the map<br>
+                2. Click anywhere to analyze a 512×512 area<br>
+                3. Results appear as overlay with confidence score
+            </div>
+
+            <h3>📊 Analysis Result</h3>
+            <div id="status">Click on the map to analyze an area.</div>
+
+            <h3>📌 Legend</h3>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="box" style="background:rgba(255,0,0,0.7)"></div>
+                    <span>Possible Informal Housing</span>
+                </div>
+                <div class="legend-item">
+                    <div class="box" style="background:rgba(255,255,0,0.7)"></div>
+                    <span>High Confidence Detection</span>
+                </div>
+                <div class="legend-item">
+                    <div class="box" style="background:rgba(0,255,0,0.7)"></div>
+                    <span>Ground Truth (if available)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="box" style="background:rgba(0,100,255,0.3);border:1px solid #007bff"></div>
+                    <span>Analysis Area (512×512)</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="map"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script>
+        // Map layers
+        var sentinel = L.tileLayer('https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg', {
+            maxZoom: 18, attribution: '© EOX/Copernicus Sentinel-2'
+        });
+
+        var googleSat = L.tileLayer('http://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            maxZoom: 20, attribution: '© Google'
+        });
+
+        // Initialize map centered on Sabah
+        var map = L.map('map', {
+            center: [5.9804, 116.0735],
+            zoom: 13,
+            layers: [sentinel]
+        });
+
+        L.control.layers({
+            "Sentinel-2 (2020)": sentinel,
+            "Google Satellite": googleSat
+        }).addTo(map);
+
+        // Layer groups
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+        var overlayGroup = new L.LayerGroup();
+        map.addLayer(overlayGroup);
+
+        // Draw control - marker only for fixed 512x512
+        var drawControl = new L.Control.Draw({
+            draw: {
+                polyline: false, polygon: false, circle: false,
+                circlemarker: false, rectangle: false,
+                marker: true
+            },
+            edit: { featureGroup: drawnItems, remove: true }
+        });
+        map.addControl(drawControl);
+
+        // Custom tooltip
+        setTimeout(function () {
+            var markerBtn = document.querySelector('.leaflet-draw-draw-marker');
+            if (markerBtn) markerBtn.title = "Click map to analyze 512×512 area";
+        }, 500);
+
+        // Handle marker placement
+        map.on(L.Draw.Event.CREATED, function (e) {
+            drawnItems.clearLayers();
+            overlayGroup.clearLayers();
+
+            // Calculate fixed 512x512 box at Zoom 14 resolution
+            var Z14_RES = 360.0 / (Math.pow(2, 14) * 256.0);
+            var box_w_deg = 512 * Z14_RES;
+            var lat = e.layer.getLatLng().lat;
+            var box_h_deg = 512 * Z14_RES * Math.cos(lat * Math.PI / 180.0);
+
+            var c_lat = e.layer.getLatLng().lat;
+            var c_lon = e.layer.getLatLng().lng;
+
+            var min_lon = c_lon - box_w_deg / 2;
+            var max_lon = c_lon + box_w_deg / 2;
+            var min_lat = c_lat - box_h_deg / 2;
+            var max_lat = c_lat + box_h_deg / 2;
+
+            // Draw the analysis box
+            var bounds = [[min_lat, min_lon], [max_lat, max_lon]];
+            L.rectangle(bounds, { color: "#007bff", weight: 2, fillOpacity: 0.1 }).addTo(drawnItems);
+
+            var bbox = {
+                min_lon: min_lon, min_lat: min_lat,
+                max_lon: max_lon, max_lat: max_lat
+            };
+
+            analyzeArea(bbox);
+        });
+
+        // Handle delete - clear overlays
+        map.on(L.Draw.Event.DELETED, function (e) {
+            overlayGroup.clearLayers();
+            document.getElementById('status').innerHTML = "Ready. Click on the map to analyze.";
+        });
+
+        async function analyzeArea(bbox) {
+            var status = document.getElementById('status');
+            status.innerHTML = "<b>Processing...</b><br>Fetching tiles and running detection...";
+            status.style.color = "#53a8b6";
+
+            try {
+                var response = await fetch('http://127.0.0.1:5000/snapshot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bbox)
+                });
+
+                if (!response.ok) {
+                    var errMsg = "Server Error";
+                    try {
+                        var err = await response.json();
+                        errMsg = err.error || errMsg;
+                    } catch (e) {
+                        errMsg = await response.text();
+                    }
+                    throw new Error(errMsg);
+                }
+
+                var iou = response.headers.get('X-IoU-Score') || "N/A";
+                var modelConfidence = response.headers.get('X-Model-Confidence') || "0.0";
+                var detectionCoverage = response.headers.get('X-Detection-Coverage') || "0.0";
+                var matchStatus = response.headers.get('X-Match-Status') || "Unknown";
+                var actualBBoxStr = response.headers.get('X-Actual-BBox');
+
+                var blob = await response.blob();
+                var url = URL.createObjectURL(blob);
+
+                // Use actual bbox from server if available
+                var imageBounds;
+                if (actualBBoxStr) {
+                    var ab = JSON.parse(actualBBoxStr);
+                    imageBounds = [[ab[1], ab[0]], [ab[3], ab[2]]];
+                } else {
+                    imageBounds = [[bbox.min_lat, bbox.min_lon], [bbox.max_lat, bbox.max_lon]];
+                }
+
+                L.imageOverlay(url, imageBounds, { opacity: 0.75 }).addTo(overlayGroup);
+
+                // Calculate percentage confidence
+                var confPercent = (parseFloat(modelConfidence) * 100).toFixed(1);
+
+                status.innerHTML = `<b>Analysis Complete</b><br>
+                    <span style="color:#4ade80">Model Confidence: ${confPercent}%</span><br>
+                    Detection Coverage: ${detectionCoverage}%<br>
+                    Status: ${matchStatus}<br>
+                    <small>Area: 512×512 @ 10m resolution</small>`;
+                status.style.color = "#aaa";
+
+            } catch (e) {
+                console.error(e);
+                status.innerHTML = `<span style="color:#ef4444">Error: ${e.message}</span>`;
+            }
+        }
+    </script>
+</body>
+
+</html>

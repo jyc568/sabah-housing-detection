@@ -1,0 +1,14 @@
+# Model checkpoints (upload to GitHub Releases)
+checkpoints/*.pth
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
