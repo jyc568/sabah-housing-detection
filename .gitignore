@@ -1,5 +1,5 @@
 # Model checkpoints (upload to GitHub Releases)
-checkpoints/*.pth
+# checkpoints included for demo
 
 # Python
 __pycache__/
